@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	fmt.Println("🚀 Todo App successfully launched in Docker on Proxmox!")
+	fmt.Println("🚀 Todo App successfully launched in Docker on Proxmox!!!")
 
 	// A temporary plug to prevent the container from closing
 	for {
