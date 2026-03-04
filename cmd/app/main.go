@@ -3,14 +3,34 @@ package main
 import (
 	"fmt"
 	"time"
+
+	"github.com/lispa/todo-app/internal/database"
 )
 
-func main() {
-	fmt.Println("🚀 Todo App successfully launched in Docker on Proxmox!!!")
+func waitForDB() {
+	fmt.Println("🚀 Starting the process of connecting to the database...")
 
-	// A temporary plug to prevent the container from closing
+	attempt := 1
+
 	for {
-		fmt.Printf("The server is running... Current time: %s\n", time.Now().Format("15:04:05"))
-		time.Sleep(10 * time.Minute)
+		conn, err := database.Connect()
+		if err != nil {
+			fmt.Printf("⚠️ Attempt %d: Database not yet available...\n", attempt)
+			attempt++
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		fmt.Println("✅ Hooray! The connection to PostgreSQL has been successfully established!")
+
+		defer conn.Close(conn.Context())
+
+		break
 	}
+}
+
+func main() {
+
+	waitForDB()
+	fmt.Println("🚀 The application has been launched")
 }
