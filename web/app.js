@@ -118,6 +118,64 @@ function getStatusBadgeClass(status) {
     }
 }
 
+let currentAuthMode = 'login'; // Global state for auth
+
+// Main UI Controller
+function showSection(section, mode = null) {
+    const sections = ['welcome-section', 'auth-section', 'todo-section'];
+    sections.forEach(s => document.getElementById(s).classList.add('d-none'));
+
+    if (section === 'welcome') {
+        document.getElementById('welcome-section').classList.remove('d-none');
+    } else if (section === 'auth') {
+        currentAuthMode = mode;
+        updateAuthUI();
+        document.getElementById('auth-section').classList.remove('d-none');
+    } else if (section === 'todo') {
+        document.getElementById('todo-section').classList.remove('d-none');
+        document.getElementById('nav-user').classList.remove('d-none');
+        loadTasks();
+    }
+}
+
+// Switch between Login and Signup
+function updateAuthUI() {
+    const signupFields = document.getElementById('signup-fields');
+    const title = document.getElementById('auth-title');
+    const submitBtn = document.getElementById('auth-submit-btn');
+    const switchText = document.getElementById('auth-switch-text');
+    const switchLink = document.getElementById('auth-switch-link');
+
+    if (currentAuthMode === 'signup') {
+        signupFields.classList.remove('d-none');
+        title.innerText = 'Create Account';
+        submitBtn.innerText = 'Sign Up';
+        switchText.innerText = 'Already have an account? ';
+        switchLink.innerText = 'Sign In';
+    } else {
+        signupFields.classList.add('d-none');
+        title.innerText = 'Welcome Back';
+        submitBtn.innerText = 'Sign In';
+        switchText.innerText = "Don't have an account? ";
+        switchLink.innerText = 'Create Account';
+    }
+}
+
+function toggleAuthMode() {
+    currentAuthMode = (currentAuthMode === 'login') ? 'signup' : 'login';
+    updateAuthUI();
+}
+
+// Initialize on load
+window.onload = () => {
+    const token = localStorage.getItem('token');
+    if (token) {
+        showSection('todo');
+    } else {
+        showSection('welcome');
+    }
+};
+
 /**
  * createTask: Sends a POST request to add a new task.
  */
