@@ -5,33 +5,40 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lispa/todo-app/internal/database"
+	"internal/database"
 )
 
-func waitForDB() {
-	fmt.Println("🚀 Starting the process of connecting to the database...")
+func main() {
+	fmt.Println("🚀 Starting Todo-App...")
 
-	attempt := 1
+	// Trying to connect
+	var conn interface{} // Let's simplify it for the sake of example, in reality there is *pgx.Conn
 
+	// We'll use the waitForDB logic, but expand it a bit.
 	for {
-		conn, err := database.Connect()
+		c, err := database.Connect()
 		if err != nil {
-			fmt.Printf("⚠️ Attempt %d: Database not yet available...\n", attempt)
-			attempt++
+			fmt.Printf("⚠️ Waiting for DB: %v\n", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
+		fmt.Println("✅ Connected and Table is ready!")
 
-		fmt.Println("✅ Hooray! The connection to PostgreSQL has been successfully established!")
+		// Let's insert a test task
+		var id int
+		err = c.QueryRow(context.Background(),
+			"INSERT INTO tasks (title) VALUES ($1) RETURNING id",
+			"My first task from Go!").Scan(&id)
 
-		defer conn.Close(context.Background())
+		if err != nil {
+			fmt.Printf("❌ Failed to insert task: %v\n", err)
+		} else {
+			fmt.Printf("📝 Inserted task with ID: %d\n", id)
+		}
 
+		c.Close(context.Background())
 		break
 	}
-}
 
-func main() {
-
-	waitForDB()
-	fmt.Println("🚀 The application has been launched")
+	fmt.Println("🚀 Application finished its work.")
 }
