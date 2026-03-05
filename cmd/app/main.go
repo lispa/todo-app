@@ -5,40 +5,39 @@ import (
 	"fmt"
 	"time"
 
-	"internal/database"
+	"github.com/lispa/todo-app/internal/database"
 )
 
 func main() {
-	fmt.Println("🚀 Starting Todo-App...")
+	fmt.Println("🚀 Starting the process of connecting to the database...")
 
-	// Trying to connect
-	var conn interface{} // Let's simplify it for the sake of example, in reality there is *pgx.Conn
-
-	// We'll use the waitForDB logic, but expand it a bit.
 	for {
-		c, err := database.Connect()
+		// 1. Connect and create a table
+		conn, err := database.Connect()
 		if err != nil {
-			fmt.Printf("⚠️ Waiting for DB: %v\n", err)
+			fmt.Printf("⚠️ Database not yet available: %v\n", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
-		fmt.Println("✅ Connected and Table is ready!")
 
-		// Let's insert a test task
+		fmt.Println("✅ Connection established and table is ready!")
+
+		// 2. USE conn to insert a test task
 		var id int
-		err = c.QueryRow(context.Background(),
+		err = conn.QueryRow(context.Background(),
 			"INSERT INTO tasks (title) VALUES ($1) RETURNING id",
-			"My first task from Go!").Scan(&id)
+			"My first real task!").Scan(&id)
 
 		if err != nil {
 			fmt.Printf("❌ Failed to insert task: %v\n", err)
 		} else {
-			fmt.Printf("📝 Inserted task with ID: %d\n", id)
+			fmt.Printf("📝 Success! Created task with ID: %d\n", id)
 		}
 
-		c.Close(context.Background())
+		// 3. Close the connection before exiting
+		defer conn.Close(context.Background())
 		break
 	}
 
-	fmt.Println("🚀 Application finished its work.")
+	fmt.Println("🚀 The application has finished its job.")
 }
