@@ -12,7 +12,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// JWT Secret Key - In a real app, use os.Getenv("JWT_SECRET")
 var jwtKey = []byte("my_ultra_secret_key_2026")
+
+// --- MODELS ---
 
 type User struct {
 	ID           int       `json:"id"`
@@ -38,6 +41,8 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+// --- MIDDLEWARE ---
+
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tokenString := r.Header.Get("Authorization")
@@ -58,6 +63,8 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// --- MAIN ---
+
 func main() {
 	fmt.Println("🚀 Starting Todo-App API Server...")
 	conn, err := database.Connect()
@@ -67,7 +74,8 @@ func main() {
 	}
 	defer conn.Close(context.Background())
 
-	// --- AUTH ---
+	// --- AUTH HANDLERS ---
+
 	http.HandleFunc("/auth/signup", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -82,7 +90,7 @@ func main() {
 			http.Error(w, "Registration failed", http.StatusConflict)
 			return
 		}
-		w.WriteHeader(http.StatusCreated)
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int{"user_id": u.ID})
 	})
 
@@ -111,9 +119,9 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
 	})
 
-	// --- TASKS ---
+	// --- TASK HANDLERS ---
 
-	// GET ALL TASKS
+	// List all tasks for user
 	http.HandleFunc("/tasks", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -128,8 +136,7 @@ func main() {
 			return
 		}
 		defer rows.Close()
-
-		var tasks []Task = []Task{} // Initialize as empty slice to avoid 'null' in JSON
+		tasks := []Task{}
 		for rows.Next() {
 			var t Task
 			rows.Scan(&t.ID, &t.UserID, &t.Title, &t.Status, &t.StartedAt, &t.FinishedAt, &t.CreatedAt)
@@ -139,6 +146,7 @@ func main() {
 		json.NewEncoder(w).Encode(tasks)
 	}))
 
+	// Create new task
 	http.HandleFunc("/tasks/create", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -157,6 +165,7 @@ func main() {
 		json.NewEncoder(w).Encode(t)
 	}))
 
+	// Start task
 	http.HandleFunc("/tasks/start", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID int `json:"id"`
@@ -173,6 +182,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "in_progress", "started_at": startedAt})
 	}))
 
+	// Complete task
 	http.HandleFunc("/tasks/done", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID int `json:"id"`
@@ -187,6 +197,25 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "done", "finished_at": finishedAt})
+	}))
+
+	// Delete task
+	http.HandleFunc("/tasks/delete", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var input struct {
+			ID int `json:"id"`
+		}
+		json.NewDecoder(r.Body).Decode(&input)
+		userID := r.Context().Value("user_id").(int)
+		res, err := conn.Exec(context.Background(), "DELETE FROM tasks WHERE id = $1 AND user_id = $2", input.ID, userID)
+		if err != nil || res.RowsAffected() == 0 {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}))
 
 	fmt.Println("🌐 Server listening on :8080")
