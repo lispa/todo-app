@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -23,7 +24,7 @@ func waitForDB() {
 
 		fmt.Println("✅ Hooray! The connection to PostgreSQL has been successfully established!")
 
-		defer conn.Close(conn.Context())
+		defer conn.Close(context.Background())
 
 		break
 	}
