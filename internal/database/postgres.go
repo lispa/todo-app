@@ -8,7 +8,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// Connect establishes a connection to the PostgreSQL database
 func Connect() (*pgx.Conn, error) {
+	// Construct the connection string using individual environment variables
 	connStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s",
 		os.Getenv("DB_USER"),
 		os.Getenv("DB_PASSWORD"),
@@ -17,12 +19,13 @@ func Connect() (*pgx.Conn, error) {
 		os.Getenv("DB_NAME"),
 	)
 
+	// Connect to the database
 	conn, err := pgx.Connect(context.Background(), connStr)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to database: %v", err)
 	}
 
-	// Create a table if it doesn't exist
+	// Automatically create the tasks table if it does not exist
 	query := `
 	CREATE TABLE IF NOT EXISTS tasks (
 		id SERIAL PRIMARY KEY,

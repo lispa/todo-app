@@ -2,42 +2,65 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/lispa/todo-app/internal/database"
 )
 
+// Task defines the structure for our JSON data
+type Task struct {
+	ID        int       `json:"id"`
+	Title     string    `json:"title"`
+	Done      bool      `json:"done"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 func main() {
-	fmt.Println("🚀 Starting the process of connecting to the database...")
+	fmt.Println("🚀 Starting Todo-App API server...")
 
-	for {
-		// 1. Connect and create a table
-		conn, err := database.Connect()
-		if err != nil {
-			fmt.Printf("⚠️ Database not yet available: %v\n", err)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		fmt.Println("✅ Connection established and table is ready!")
-
-		// 2. USE conn to insert a test task
-		var id int
-		err = conn.QueryRow(context.Background(),
-			"INSERT INTO tasks (title) VALUES ($1) RETURNING id",
-			"My first real task!").Scan(&id)
-
-		if err != nil {
-			fmt.Printf("❌ Failed to insert task: %v\n", err)
-		} else {
-			fmt.Printf("📝 Success! Created task with ID: %d\n", id)
-		}
-
-		// 3. Close the connection before exiting
-		defer conn.Close(context.Background())
-		break
+	// Initialize database connection
+	conn, err := database.Connect()
+	if err != nil {
+		fmt.Printf("❌ Connection error: %v\n", err)
+		return
 	}
+	defer conn.Close(context.Background())
 
-	fmt.Println("🚀 The application has finished its job.")
+	fmt.Println("✅ Database connection verified")
+
+	// Endpoint to get all tasks as JSON
+	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
+		rows, err := conn.Query(context.Background(), "SELECT id, title, done, created_at FROM tasks ORDER BY id DESC")
+		if err != nil {
+			http.Error(w, "Failed to fetch tasks", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var tasks []Task
+		for rows.Next() {
+			var t Task
+			if err := rows.Scan(&t.ID, &t.Title, &t.Done, &t.CreatedAt); err != nil {
+				continue
+			}
+			tasks = append(tasks, t)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(tasks)
+	})
+
+	// Basic health check endpoint
+	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("pong"))
+	})
+
+	fmt.Println("🌐 Server is listening on port :8080")
+	// ListenAndServe blocks the app and keeps it running
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		fmt.Printf("❌ Server failed to start: %v\n", err)
+	}
 }
