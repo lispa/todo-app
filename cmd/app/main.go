@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5" // Ensure this matches your database.Connect return type
 	"github.com/lispa/todo-app/internal/database"
 	"golang.org/x/crypto/bcrypt"
 )
 
+// JWT Secret Key - In a real app, use os.Getenv("JWT_SECRET")
 var jwtKey = []byte("my_ultra_secret_key_2026")
 
 // --- MODELS ---
@@ -42,7 +44,7 @@ type Claims struct {
 
 // --- MIDDLEWARE ---
 
-// enableCORS allows browsers to make requests to this API
+// enableCORS: Standard CORS headers for browser compatibility
 func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -57,6 +59,7 @@ func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// authMiddleware: Validates JWT from Authorization header
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tokenString := r.Header.Get("Authorization")
@@ -80,15 +83,29 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // --- MAIN ---
 
 func main() {
-	fmt.Println("🚀 Starting Todo-App API Server with CORS...")
-	conn, err := database.Connect()
+	fmt.Println("🚀 Starting Todo-App API Server...")
+
+	var conn *pgx.Conn
+	var err error
+
+	// RETRY LOGIC: Wait for PostgreSQL to be ready in Docker
+	for i := 1; i <= 10; i++ {
+		conn, err = database.Connect()
+		if err == nil {
+			fmt.Println("✅ Successfully connected to the database!")
+			break
+		}
+		fmt.Printf("⏳ [Attempt %d/10] Database not ready, retrying in 3 seconds...\n", i)
+		time.Sleep(3 * time.Second)
+	}
+
 	if err != nil {
-		fmt.Printf("❌ DB Error: %v\n", err)
+		fmt.Printf("❌ Critical Error: Could not connect to DB after 10 attempts: %v\n", err)
 		return
 	}
 	defer conn.Close(context.Background())
 
-	// --- AUTH ---
+	// --- AUTH ROUTES ---
 	http.HandleFunc("/auth/signup", enableCORS(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -132,7 +149,9 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
 	}))
 
-	// --- TASKS ---
+	// --- TASK ROUTES ---
+
+	// List Tasks
 	http.HandleFunc("/tasks", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -155,6 +174,7 @@ func main() {
 		json.NewEncoder(w).Encode(tasks)
 	})))
 
+	// Create Task
 	http.HandleFunc("/tasks/create", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -173,6 +193,7 @@ func main() {
 		json.NewEncoder(w).Encode(t)
 	})))
 
+	// Start Task
 	http.HandleFunc("/tasks/start", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID int `json:"id"`
@@ -189,6 +210,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "in_progress", "started_at": startedAt})
 	})))
 
+	// Done Task
 	http.HandleFunc("/tasks/done", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID int `json:"id"`
@@ -205,6 +227,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "done", "finished_at": finishedAt})
 	})))
 
+	// Delete Task
 	http.HandleFunc("/tasks/delete", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
