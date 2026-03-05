@@ -22,8 +22,6 @@ services:
       DB_USER: admindb
       DB_PASSWORD: adminpassword
       DB_NAME: todo_db
-    # Порт 8080 наружу теперь можно не прокидывать, 
-    # так как Nginx будет общаться с app внутри сети Docker
 
   nginx:
     image: nginx:latest
