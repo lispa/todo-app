@@ -12,7 +12,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// JWT Secret Key - In a real app, use os.Getenv("JWT_SECRET")
 var jwtKey = []byte("my_ultra_secret_key_2026")
 
 // --- MODELS ---
@@ -43,6 +42,21 @@ type Claims struct {
 
 // --- MIDDLEWARE ---
 
+// enableCORS allows browsers to make requests to this API
+func enableCORS(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE, PUT")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
+}
+
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tokenString := r.Header.Get("Authorization")
@@ -66,7 +80,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // --- MAIN ---
 
 func main() {
-	fmt.Println("🚀 Starting Todo-App API Server...")
+	fmt.Println("🚀 Starting Todo-App API Server with CORS...")
 	conn, err := database.Connect()
 	if err != nil {
 		fmt.Printf("❌ DB Error: %v\n", err)
@@ -74,9 +88,8 @@ func main() {
 	}
 	defer conn.Close(context.Background())
 
-	// --- AUTH HANDLERS ---
-
-	http.HandleFunc("/auth/signup", func(w http.ResponseWriter, r *http.Request) {
+	// --- AUTH ---
+	http.HandleFunc("/auth/signup", enableCORS(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -92,9 +105,9 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int{"user_id": u.ID})
-	})
+	}))
 
-	http.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/auth/login", enableCORS(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -117,20 +130,16 @@ func main() {
 		tokenString, _ := token.SignedString(jwtKey)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
-	})
+	}))
 
-	// --- TASK HANDLERS ---
-
-	// List all tasks for user
-	http.HandleFunc("/tasks", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	// --- TASKS ---
+	http.HandleFunc("/tasks", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		userID := r.Context().Value("user_id").(int)
-		rows, err := conn.Query(context.Background(),
-			"SELECT id, user_id, title, status, started_at, finished_at, created_at FROM tasks WHERE user_id = $1 ORDER BY created_at DESC",
-			userID)
+		rows, err := conn.Query(context.Background(), "SELECT id, user_id, title, status, started_at, finished_at, created_at FROM tasks WHERE user_id = $1 ORDER BY created_at DESC", userID)
 		if err != nil {
 			http.Error(w, "DB error", http.StatusInternalServerError)
 			return
@@ -144,10 +153,9 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(tasks)
-	}))
+	})))
 
-	// Create new task
-	http.HandleFunc("/tasks/create", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/tasks/create", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -163,10 +171,9 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(t)
-	}))
+	})))
 
-	// Start task
-	http.HandleFunc("/tasks/start", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/tasks/start", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID int `json:"id"`
 		}
@@ -180,10 +187,9 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "in_progress", "started_at": startedAt})
-	}))
+	})))
 
-	// Complete task
-	http.HandleFunc("/tasks/done", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/tasks/done", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID int `json:"id"`
 		}
@@ -197,10 +203,9 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "done", "finished_at": finishedAt})
-	}))
+	})))
 
-	// Delete task
-	http.HandleFunc("/tasks/delete", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/tasks/delete", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -216,7 +221,7 @@ func main() {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	})))
 
 	fmt.Println("🌐 Server listening on :8080")
 	http.ListenAndServe(":8080", nil)
