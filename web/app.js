@@ -1,7 +1,7 @@
 /**
  * Configuration and Global State
  */
-const API_URL = 'http://localhost:8080';
+const API_URL = window.location.origin + '/api';
 
 // DOM Element Selectors
 const authSection = document.getElementById('authSection');
