@@ -8,19 +8,20 @@ import (
 	"time"
 
 	"github.com/lispa/todo-app/internal/database"
+	"golang.org/x/crypto/bcrypt"
 )
 
-// User represents the account owner
+// User represents the account owner in the system
 type User struct {
 	ID           int       `json:"id"`
 	FirstName    string    `json:"first_name"`
 	LastName     string    `json:"last_name"`
 	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"` // Hidden in JSON
+	PasswordHash string    `json:"password"` // We use this field for input, then hash it
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// Task represents the todo item with lifecycle tracking
+// Task represents a todo item with lifecycle tracking
 type Task struct {
 	ID         int        `json:"id"`
 	UserID     int        `json:"user_id"`
@@ -32,8 +33,9 @@ type Task struct {
 }
 
 func main() {
-	fmt.Println("🚀 Starting Todo-App API...")
+	fmt.Println("🚀 Starting Todo-App API Server...")
 
+	// Initialize database connection
 	conn, err := database.Connect()
 	if err != nil {
 		fmt.Printf("❌ Database error: %v\n", err)
@@ -41,31 +43,62 @@ func main() {
 	}
 	defer conn.Close(context.Background())
 
-	// Endpoint to get all tasks
-	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
-		query := "SELECT id, user_id, title, status, started_at, finished_at, created_at FROM tasks ORDER BY id DESC"
-		rows, err := conn.Query(context.Background(), query)
-		if err != nil {
-			http.Error(w, "Query error", http.StatusInternalServerError)
+	fmt.Println("✅ Database connected")
+
+	// --- ROUTES ---
+
+	// User Registration Handler
+	http.HandleFunc("/auth/signup", func(w http.ResponseWriter, r *http.Request) {
+		// Only allow POST requests for security
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		defer rows.Close()
 
-		var tasks []Task
-		for rows.Next() {
-			var t Task
-			// Scanning with pointers to handle potential NULL values in time fields
-			err := rows.Scan(&t.ID, &t.UserID, &t.Title, &t.Status, &t.StartedAt, &t.FinishedAt, &t.CreatedAt)
-			if err != nil {
-				continue
-			}
-			tasks = append(tasks, t)
+		var u User
+		if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
 		}
 
+		// Hash password before storing it
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(u.PasswordHash), bcrypt.DefaultCost)
+		if err != nil {
+			http.Error(w, "Server error during password hashing", http.StatusInternalServerError)
+			return
+		}
+
+		// Insert user and get the new ID
+		query := `
+			INSERT INTO users (first_name, last_name, email, password_hash)
+			VALUES ($1, $2, $3, $4)
+			RETURNING id, created_at`
+
+		err = conn.QueryRow(context.Background(), query,
+			u.FirstName, u.LastName, u.Email, string(hashedPassword)).Scan(&u.ID, &u.CreatedAt)
+
+		if err != nil {
+			fmt.Printf("DB Error: %v\n", err)
+			http.Error(w, "User already exists or database error", http.StatusConflict)
+			return
+		}
+
+		// Success response
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(tasks)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"message": "User registered successfully",
+			"user_id": u.ID,
+		})
+	})
+
+	// Health check
+	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("pong"))
 	})
 
 	fmt.Println("🌐 Server listening on :8080")
-	http.ListenAndServe(":8080", nil)
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		fmt.Printf("❌ Server crash: %v\n", err)
+	}
 }
