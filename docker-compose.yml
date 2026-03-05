@@ -13,8 +13,7 @@ services:
 
   app:
     build: .
-    ports:
-      - "8080:8080"
+    container_name: todo-app-backend
     depends_on:
       - db
     environment:
@@ -23,6 +22,8 @@ services:
       DB_USER: admindb
       DB_PASSWORD: adminpassword
       DB_NAME: todo_db
+    # Порт 8080 наружу теперь можно не прокидывать, 
+    # так как Nginx будет общаться с app внутри сети Docker
 
   nginx:
     image: nginx:latest
@@ -30,7 +31,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./web:/usr/share/nginx/html:ro  # Монтируем папку с фронтендом
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro # Монтируем конфиг
+      - ./web:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - app
