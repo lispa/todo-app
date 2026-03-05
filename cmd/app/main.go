@@ -10,32 +10,43 @@ import (
 	"github.com/lispa/todo-app/internal/database"
 )
 
-// Task defines the structure for our JSON data
+// User represents the account owner
+type User struct {
+	ID           int       `json:"id"`
+	FirstName    string    `json:"first_name"`
+	LastName     string    `json:"last_name"`
+	Email        string    `json:"email"`
+	PasswordHash string    `json:"-"` // Hidden in JSON
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// Task represents the todo item with lifecycle tracking
 type Task struct {
-	ID        int       `json:"id"`
-	Title     string    `json:"title"`
-	Done      bool      `json:"done"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int        `json:"id"`
+	UserID     int        `json:"user_id"`
+	Title      string     `json:"title"`
+	Status     string     `json:"status"`
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 func main() {
-	fmt.Println("🚀 Starting Todo-App API server...")
+	fmt.Println("🚀 Starting Todo-App API...")
 
-	// Initialize database connection
 	conn, err := database.Connect()
 	if err != nil {
-		fmt.Printf("❌ Connection error: %v\n", err)
+		fmt.Printf("❌ Database error: %v\n", err)
 		return
 	}
 	defer conn.Close(context.Background())
 
-	fmt.Println("✅ Database connection verified")
-
-	// Endpoint to get all tasks as JSON
+	// Endpoint to get all tasks
 	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
-		rows, err := conn.Query(context.Background(), "SELECT id, title, done, created_at FROM tasks ORDER BY id DESC")
+		query := "SELECT id, user_id, title, status, started_at, finished_at, created_at FROM tasks ORDER BY id DESC"
+		rows, err := conn.Query(context.Background(), query)
 		if err != nil {
-			http.Error(w, "Failed to fetch tasks", http.StatusInternalServerError)
+			http.Error(w, "Query error", http.StatusInternalServerError)
 			return
 		}
 		defer rows.Close()
@@ -43,7 +54,9 @@ func main() {
 		var tasks []Task
 		for rows.Next() {
 			var t Task
-			if err := rows.Scan(&t.ID, &t.Title, &t.Done, &t.CreatedAt); err != nil {
+			// Scanning with pointers to handle potential NULL values in time fields
+			err := rows.Scan(&t.ID, &t.UserID, &t.Title, &t.Status, &t.StartedAt, &t.FinishedAt, &t.CreatedAt)
+			if err != nil {
 				continue
 			}
 			tasks = append(tasks, t)
@@ -53,14 +66,6 @@ func main() {
 		json.NewEncoder(w).Encode(tasks)
 	})
 
-	// Basic health check endpoint
-	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("pong"))
-	})
-
-	fmt.Println("🌐 Server is listening on port :8080")
-	// ListenAndServe blocks the app and keeps it running
-	if err := http.ListenAndServe(":8080", nil); err != nil {
-		fmt.Printf("❌ Server failed to start: %v\n", err)
-	}
+	fmt.Println("🌐 Server listening on :8080")
+	http.ListenAndServe(":8080", nil)
 }

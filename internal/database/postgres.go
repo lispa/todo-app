@@ -25,14 +25,28 @@ func Connect() (*pgx.Conn, error) {
 		return nil, fmt.Errorf("unable to connect to database: %v", err)
 	}
 
-	// Automatically create the tasks table if it does not exist
+	// Updated database schema with extended user and task details
 	query := `
-	CREATE TABLE IF NOT EXISTS tasks (
-		id SERIAL PRIMARY KEY,
-		title TEXT NOT NULL,
-		done BOOLEAN DEFAULT FALSE,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);`
+-- Users table with personal details
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tasks table with tracking time
+CREATE TABLE IF NOT EXISTS tasks (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'todo', -- todo, in_progress, done
+    started_at TIMESTAMP WITH TIME ZONE,
+    finished_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);`
 
 	_, err = conn.Exec(context.Background(), query)
 	if err != nil {
