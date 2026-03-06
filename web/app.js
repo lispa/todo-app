@@ -144,40 +144,39 @@ function logout() {
  */
 async function loadTasks() {
     const token = localStorage.getItem('token');
-    if (!token) return logout();
+    if (!token) return showSection('welcome');
+
+    console.log("Loading tasks with token:", token.substring(0, 10) + "...");
 
     try {
         const response = await fetch(`${API_URL}/tasks`, {
             method: 'GET',
             headers: { 
-                'Authorization': `Bearer ${token}`, // Standard JWT format
-                'Content-Type': 'application/json'
+                'Authorization': `Bearer ${token.trim()}`,
+                'Accept': 'application/json'
             }
         });
 
         if (response.status === 401) {
-            console.error("Session expired (401). Redirecting to login.");
-            return logout();
+            console.error("Server returned 401 Unauthorized. Potential JWT_SECRET mismatch on backend.");
+            // Temporary: don't logout to allow debugging
+            // return logout(); 
+            return;
         }
 
         const tasks = await response.json();
         const list = document.getElementById('tasks-list');
         if (!list) return;
 
-        list.innerHTML = '';
-        if (!tasks || tasks.length === 0) {
-            list.innerHTML = '<div class="text-center p-3 text-muted">No tasks found.</div>';
-            return;
-        }
+        list.innerHTML = tasks.length === 0 ? '<div class="text-center p-3 text-muted">No tasks yet.</div>' : '';
 
-        // Generate task items
         tasks.forEach(task => {
             const item = document.createElement('div');
             item.className = 'list-group-item d-flex justify-content-between align-items-center shadow-sm mb-2 border-0 rounded';
             item.innerHTML = `
                 <div>
-                    <h6 class="mb-0">${task.title}</h6>
-                    <small class="text-secondary">Status: ${task.status}</small>
+                    <h6 class="mb-0 text-dark">${task.title}</h6>
+                    <small class="text-muted">Status: ${task.status}</small>
                 </div>
                 <span class="badge bg-primary rounded-pill px-3">${task.status}</span>
             `;

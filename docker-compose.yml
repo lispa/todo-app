@@ -22,6 +22,7 @@ services:
       DB_USER: admindb
       DB_PASSWORD: adminpassword
       DB_NAME: todo_db
+      JWT_SECRET: ${JWT_SECRET}
 
   nginx:
     image: nginx:latest

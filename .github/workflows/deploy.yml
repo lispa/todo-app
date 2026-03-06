@@ -20,6 +20,7 @@ jobs:
           echo "DB_NAME=${{ secrets.DB_NAME || 'todo_db' }}" >> .env
           echo "DB_HOST=db" >> .env
           echo "DB_PORT=5432" >> .env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
 
       - name: Build and Run Docker Containers
         run: |
