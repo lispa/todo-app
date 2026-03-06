@@ -1,24 +1,27 @@
 /**
  * Todo-App Frontend Logic
- * Integrated SPA Navigation, JWT Auth, and Task Management
- * Comments: English
+ * Handles SPA navigation, JWT authentication, and task management.
+ * @version 1.2
  */
 
 const API_URL = '/api';
 let currentAuthMode = 'login'; 
 
-// --- SECTION 1: UI NAVIGATION CONTROL ---
+// --- SECTION 1: NAVIGATION ---
 
 /**
- * Handles switching between Welcome, Auth, and Todo sections
+ * Switch between application sections: Welcome, Auth, or Dashboard.
  */
 function showSection(section, mode = null) {
     const sections = ['welcome-section', 'auth-section', 'todo-section'];
     
-    // Hide all sections initially
-    sections.forEach(s => document.getElementById(s)?.classList.add('d-none'));
-    
-    // Hide user navigation by default
+    // Hide all main containers
+    sections.forEach(s => {
+        const el = document.getElementById(s);
+        if (el) el.classList.add('d-none');
+    });
+
+    // Reset user-specific navigation
     document.getElementById('nav-user')?.classList.add('d-none');
 
     if (section === 'welcome') {
@@ -31,17 +34,20 @@ function showSection(section, mode = null) {
     } 
     else if (section === 'todo') {
         const token = localStorage.getItem('token');
-        // Redirect to welcome if no token found
-        if (!token) return showSection('welcome');
+        // If no token exists, force redirect to landing page
+        if (!token) {
+            console.warn("No session token found. Redirecting to welcome.");
+            return showSection('welcome');
+        }
         
         document.getElementById('todo-section')?.classList.remove('d-none');
         document.getElementById('nav-user')?.classList.remove('d-none');
-        loadTasks();
+        loadTasks(); // Load data from backend
     }
 }
 
 /**
- * Updates Auth form labels based on Login/Signup mode
+ * Update UI labels and fields based on login or registration mode.
  */
 function updateAuthUI() {
     const signupFields = document.getElementById('signup-fields');
@@ -51,14 +57,14 @@ function updateAuthUI() {
 
     if (currentAuthMode === 'signup') {
         signupFields?.classList.remove('d-none');
-        if (title) title.innerText = 'Create Account';
-        if (submitBtn) submitBtn.innerText = 'Sign Up';
-        if (switchLink) switchLink.innerText = 'Sign In';
+        if (title) title.innerText = 'Create Your Account';
+        if (submitBtn) submitBtn.innerText = 'Register';
+        if (switchLink) switchLink.innerText = 'Already have an account? Sign In';
     } else {
         signupFields?.classList.add('d-none');
         if (title) title.innerText = 'Welcome Back';
         if (submitBtn) submitBtn.innerText = 'Sign In';
-        if (switchLink) switchLink.innerText = 'Create Account';
+        if (switchLink) switchLink.innerText = 'New here? Create an Account';
     }
 }
 
@@ -70,7 +76,7 @@ function toggleAuthMode() {
 // --- SECTION 2: AUTHENTICATION ---
 
 /**
- * Handles Form Submission for Login and Registration
+ * Handle form submission for both login and signup.
  */
 document.getElementById('auth-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -81,11 +87,12 @@ document.getElementById('auth-form')?.addEventListener('submit', async (e) => {
     
     const payload = { email, password };
     if (currentAuthMode === 'signup') {
-        payload.first_name = document.getElementById('first_name').value || "User";
-        payload.last_name = document.getElementById('last_name').value || "New";
+        payload.first_name = document.getElementById('first_name').value || "Guest";
+        payload.last_name = document.getElementById('last_name').value || "User";
     }
 
     try {
+        console.log(`Sending ${currentAuthMode} request to ${endpoint}...`);
         const response = await fetch(`${API_URL}${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -93,33 +100,36 @@ document.getElementById('auth-form')?.addEventListener('submit', async (e) => {
         });
 
         const data = await response.json();
-        console.log("Auth Debug Response:", data);
+        console.log("Auth Debug - Server Response Data:", data);
 
         if (response.ok) {
             if (currentAuthMode === 'login') {
-                // Backend might return 'token' or 'access_token'
+                // IMPORTANT: Backend must return field 'token' or 'access_token'
                 const token = data.token || data.access_token;
                 if (token) {
                     localStorage.setItem('token', token);
+                    console.log("Session saved. Entering dashboard.");
                     showSection('todo');
                 } else {
-                    alert("Authentication successful, but no token received.");
+                    console.error("Auth successful but token missing in response body!");
+                    alert("System error: Token not received.");
                 }
             } else {
-                alert('Account created! Switching to Login.');
+                alert('Account created! Please sign in with your new credentials.');
                 currentAuthMode = 'login';
                 updateAuthUI();
             }
         } else {
-            alert(data.error || 'Authentication failed. Please check your credentials.');
+            console.error("Auth failed:", data.error);
+            alert(data.error || 'Authentication failed. Please check your inputs.');
         }
     } catch (err) {
-        console.error('Network or Server Error:', err);
+        console.error('Critical Auth Error:', err);
     }
 });
 
 /**
- * Clears local session and returns to welcome screen
+ * Remove session data and return to welcome screen.
  */
 function logout() {
     console.log("User logged out. Clearing local storage.");
@@ -130,7 +140,7 @@ function logout() {
 // --- SECTION 3: TASK MANAGEMENT ---
 
 /**
- * Fetches tasks from the API using Bearer Token
+ * Fetch tasks using the JWT Bearer token.
  */
 async function loadTasks() {
     const token = localStorage.getItem('token');
@@ -140,12 +150,11 @@ async function loadTasks() {
         const response = await fetch(`${API_URL}/tasks`, {
             method: 'GET',
             headers: { 
-                'Authorization': `Bearer ${token}`,
+                'Authorization': `Bearer ${token}`, // Standard JWT format
                 'Content-Type': 'application/json'
             }
         });
 
-        // If server returns 401, the token is likely expired or invalid
         if (response.status === 401) {
             console.error("Session expired (401). Redirecting to login.");
             return logout();
@@ -157,30 +166,30 @@ async function loadTasks() {
 
         list.innerHTML = '';
         if (!tasks || tasks.length === 0) {
-            list.innerHTML = '<div class="text-center p-3 text-muted">Your task list is empty.</div>';
+            list.innerHTML = '<div class="text-center p-3 text-muted">No tasks found.</div>';
             return;
         }
 
-        // Render tasks dynamically
+        // Generate task items
         tasks.forEach(task => {
             const item = document.createElement('div');
-            item.className = 'list-group-item d-flex justify-content-between align-items-center shadow-sm mb-2 border-0 rounded animate-fade-in';
+            item.className = 'list-group-item d-flex justify-content-between align-items-center shadow-sm mb-2 border-0 rounded';
             item.innerHTML = `
                 <div>
                     <h6 class="mb-0">${task.title}</h6>
-                    <small class="text-muted">Status: ${task.status}</small>
+                    <small class="text-secondary">Status: ${task.status}</small>
                 </div>
-                <span class="badge bg-primary rounded-pill">${task.status}</span>
+                <span class="badge bg-primary rounded-pill px-3">${task.status}</span>
             `;
             list.appendChild(item);
         });
     } catch (err) {
-        console.error('Failed to fetch tasks:', err);
+        console.error('Task fetch failed:', err);
     }
 }
 
 /**
- * Sends a POST request to create a new task
+ * Create a new task entry in the database.
  */
 async function createTask() {
     const titleInput = document.getElementById('task-title');
@@ -198,23 +207,25 @@ async function createTask() {
         });
 
         if (response.ok) {
-            titleInput.value = ''; // Clear input on success
-            loadTasks(); // Refresh list
+            titleInput.value = '';
+            loadTasks(); // Reload the list
         } else {
-            const err = await response.json();
-            alert(err.error || "Failed to create task");
+            const error = await response.json();
+            console.error("Task creation failed:", error);
         }
     } catch (err) { 
-        console.error("Create task request failed:", err); 
+        console.error("Network error during task creation:", err); 
     }
 }
 
-// --- SECTION 4: APP INITIALIZATION ---
+// --- SECTION 4: INITIALIZATION ---
 
+/**
+ * On page load, check for existing session.
+ */
 window.onload = () => {
     const token = localStorage.getItem('token');
-    console.log("App startup. Session found:", !!token);
+    console.log("App bootstrap. Session found:", !!token);
     
-    // Persistent login check
     token ? showSection('todo') : showSection('welcome');
 };
