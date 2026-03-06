@@ -189,6 +189,7 @@ async function loadTasks() {
 
 /**
  * Create a new task entry in the database.
+ * Includes enhanced error handling for non-JSON responses.
  */
 async function createTask() {
     const titleInput = document.getElementById('task-title');
@@ -200,17 +201,28 @@ async function createTask() {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token.trim()}`
             },
             body: JSON.stringify({ title: titleInput.value })
         });
 
+        // First, check if the response is actually JSON
+        const contentType = response.headers.get("content-type");
         if (response.ok) {
             titleInput.value = '';
-            loadTasks(); // Reload the list
+            loadTasks();
         } else {
-            const error = await response.json();
-            console.error("Task creation failed:", error);
+            if (contentType && contentType.includes("application/json")) {
+                const errorData = await response.json();
+                alert(errorData.error || "Failed to create task");
+            } else {
+                const textError = await response.text();
+                console.error("Server returned non-JSON error:", textError);
+                if (response.status === 401) {
+                    alert("Your session expired. Please log in again.");
+                    logout();
+                }
+            }
         }
     } catch (err) { 
         console.error("Network error during task creation:", err); 
