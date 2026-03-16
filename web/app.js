@@ -1,7 +1,7 @@
 /**
  * Todo-App Frontend Logic
- * Handles SPA navigation, JWT authentication, and task management.
- * @version 1.2
+ * Full Task Lifecycle: Create, Start, Complete, Delete
+ * @version 1.3
  */
 
 const API_URL = '/api';
@@ -15,13 +15,11 @@ let currentAuthMode = 'login';
 function showSection(section, mode = null) {
     const sections = ['welcome-section', 'auth-section', 'todo-section'];
     
-    // Hide all main containers
     sections.forEach(s => {
         const el = document.getElementById(s);
         if (el) el.classList.add('d-none');
     });
 
-    // Reset user-specific navigation
     document.getElementById('nav-user')?.classList.add('d-none');
 
     if (section === 'welcome') {
@@ -34,20 +32,16 @@ function showSection(section, mode = null) {
     } 
     else if (section === 'todo') {
         const token = localStorage.getItem('token');
-        // If no token exists, force redirect to landing page
-        if (!token) {
-            console.warn("No session token found. Redirecting to welcome.");
-            return showSection('welcome');
-        }
+        if (!token) return showSection('welcome');
         
         document.getElementById('todo-section')?.classList.remove('d-none');
         document.getElementById('nav-user')?.classList.remove('d-none');
-        loadTasks(); // Load data from backend
+        loadTasks();
     }
 }
 
 /**
- * Update UI labels and fields based on login or registration mode.
+ * UI labels for Login/Signup toggle
  */
 function updateAuthUI() {
     const signupFields = document.getElementById('signup-fields');
@@ -75,12 +69,8 @@ function toggleAuthMode() {
 
 // --- SECTION 2: AUTHENTICATION ---
 
-/**
- * Handle form submission for both login and signup.
- */
 document.getElementById('auth-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    
     const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
     const endpoint = currentAuthMode === 'signup' ? '/auth/signup' : '/auth/login';
@@ -92,7 +82,6 @@ document.getElementById('auth-form')?.addEventListener('submit', async (e) => {
     }
 
     try {
-        console.log(`Sending ${currentAuthMode} request to ${endpoint}...`);
         const response = await fetch(`${API_URL}${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -100,39 +89,26 @@ document.getElementById('auth-form')?.addEventListener('submit', async (e) => {
         });
 
         const data = await response.json();
-        console.log("Auth Debug - Server Response Data:", data);
 
         if (response.ok) {
             if (currentAuthMode === 'login') {
-                // IMPORTANT: Backend must return field 'token' or 'access_token'
                 const token = data.token || data.access_token;
                 if (token) {
                     localStorage.setItem('token', token);
-                    console.log("Session saved. Entering dashboard.");
                     showSection('todo');
-                } else {
-                    console.error("Auth successful but token missing in response body!");
-                    alert("System error: Token not received.");
                 }
             } else {
-                alert('Account created! Please sign in with your new credentials.');
+                alert('Account created! Please sign in.');
                 currentAuthMode = 'login';
                 updateAuthUI();
             }
         } else {
-            console.error("Auth failed:", data.error);
-            alert(data.error || 'Authentication failed. Please check your inputs.');
+            alert(data.error || 'Auth failed');
         }
-    } catch (err) {
-        console.error('Critical Auth Error:', err);
-    }
+    } catch (err) { console.error('Auth Error:', err); }
 });
 
-/**
- * Remove session data and return to welcome screen.
- */
 function logout() {
-    console.log("User logged out. Clearing local storage.");
     localStorage.removeItem('token');
     showSection('welcome');
 }
@@ -140,13 +116,11 @@ function logout() {
 // --- SECTION 3: TASK MANAGEMENT ---
 
 /**
- * Fetch tasks using the JWT Bearer token.
+ * Fetch and display tasks with action buttons
  */
 async function loadTasks() {
     const token = localStorage.getItem('token');
     if (!token) return showSection('welcome');
-
-    console.log("Loading tasks with token:", token.substring(0, 10) + "...");
 
     try {
         const response = await fetch(`${API_URL}/tasks`, {
@@ -157,40 +131,39 @@ async function loadTasks() {
             }
         });
 
-        if (response.status === 401) {
-            console.error("Server returned 401 Unauthorized. Potential JWT_SECRET mismatch on backend.");
-            // Temporary: don't logout to allow debugging
-            // return logout(); 
-            return;
-        }
+        if (response.status === 401) return logout();
 
         const tasks = await response.json();
         const list = document.getElementById('tasks-list');
         if (!list) return;
 
-        list.innerHTML = tasks.length === 0 ? '<div class="text-center p-3 text-muted">No tasks yet.</div>' : '';
+        list.innerHTML = tasks.length === 0 ? '<div class="text-center p-3 text-muted">No tasks found.</div>' : '';
 
         tasks.forEach(task => {
             const item = document.createElement('div');
-            item.className = 'list-group-item d-flex justify-content-between align-items-center shadow-sm mb-2 border-0 rounded';
+            item.className = 'list-group-item d-flex justify-content-between align-items-center shadow-sm mb-3 border-0 rounded p-3';
+            
+            // Logic for dynamic badges and buttons
+            const isDone = task.status === 'done';
+            const isInProgress = task.status === 'in_progress';
+            const badgeClass = isDone ? 'bg-success' : (isInProgress ? 'bg-warning text-dark' : 'bg-primary');
+
             item.innerHTML = `
-                <div>
-                    <h6 class="mb-0 text-dark">${task.title}</h6>
-                    <small class="text-muted">Status: ${task.status}</small>
+                <div class="flex-grow-1">
+                    <h6 class="mb-1 fw-bold ${isDone ? 'text-decoration-line-through text-muted' : ''}">${task.title}</h6>
+                    <span class="badge ${badgeClass}">${task.status.replace('_', ' ')}</span>
                 </div>
-                <span class="badge bg-primary rounded-pill px-3">${task.status}</span>
+                <div class="btn-group ms-3">
+                    ${task.status === 'todo' ? `<button class="btn btn-sm btn-outline-warning" onclick="updateTaskStatus(${task.id}, 'start')">Start</button>` : ''}
+                    ${isInProgress ? `<button class="btn btn-sm btn-outline-success" onclick="updateTaskStatus(${task.id}, 'done')">Done</button>` : ''}
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteTask(${task.id})">Delete</button>
+                </div>
             `;
             list.appendChild(item);
         });
-    } catch (err) {
-        console.error('Task fetch failed:', err);
-    }
+    } catch (err) { console.error('Load Error:', err); }
 }
 
-/**
- * Create a new task entry in the database.
- * Includes enhanced error handling for non-JSON responses.
- */
 async function createTask() {
     const titleInput = document.getElementById('task-title');
     const token = localStorage.getItem('token');
@@ -206,37 +179,63 @@ async function createTask() {
             body: JSON.stringify({ title: titleInput.value })
         });
 
-        // First, check if the response is actually JSON
-        const contentType = response.headers.get("content-type");
         if (response.ok) {
             titleInput.value = '';
             loadTasks();
-        } else {
-            if (contentType && contentType.includes("application/json")) {
-                const errorData = await response.json();
-                alert(errorData.error || "Failed to create task");
-            } else {
-                const textError = await response.text();
-                console.error("Server returned non-JSON error:", textError);
-                if (response.status === 401) {
-                    alert("Your session expired. Please log in again.");
-                    logout();
-                }
-            }
+        } else if (response.status === 401) {
+            logout();
         }
-    } catch (err) { 
-        console.error("Network error during task creation:", err); 
-    }
+    } catch (err) { console.error("Create Error:", err); }
+}
+
+/**
+ * Handle Start/Done actions
+ * @param {number} taskId 
+ * @param {string} action - 'start' or 'done'
+ */
+async function updateTaskStatus(taskId, action) {
+    const token = localStorage.getItem('token');
+    try {
+        const response = await fetch(`${API_URL}/tasks/${action}`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token.trim()}`
+            },
+            body: JSON.stringify({ id: taskId })
+        });
+
+        if (response.ok) loadTasks();
+    } catch (err) { console.error(`Error during ${action}:`, err); }
+}
+
+/**
+ * Delete task from DB
+ */
+async function deleteTask(taskId) {
+    if (!confirm("Are you sure?")) return;
+    const token = localStorage.getItem('token');
+    try {
+        const response = await fetch(`${API_URL}/tasks/delete`, {
+            method: 'DELETE',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token.trim()}`
+            },
+            body: JSON.stringify({ id: taskId })
+        });
+
+        if (response.ok) loadTasks();
+    } catch (err) { console.error('Delete error:', err); }
 }
 
 // --- SECTION 4: INITIALIZATION ---
 
-/**
- * On page load, check for existing session.
- */
 window.onload = () => {
     const token = localStorage.getItem('token');
-    console.log("App bootstrap. Session found:", !!token);
-    
     token ? showSection('todo') : showSection('welcome');
 };
+
+// Expose functions to global scope for HTML onclick handlers
+window.updateTaskStatus = updateTaskStatus;
+window.deleteTask = deleteTask;
