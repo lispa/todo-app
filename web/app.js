@@ -143,7 +143,7 @@ async function loadTasks() {
             const item = document.createElement('div');
             item.className = 'list-group-item d-flex justify-content-between align-items-center shadow-sm mb-3 border-0 rounded p-3';
             
-            // Logic for dynamic badges and buttons
+            // Logic for dynamic badges and action buttons
             const isDone = task.status === 'done';
             const isInProgress = task.status === 'in_progress';
             const badgeClass = isDone ? 'bg-success' : (isInProgress ? 'bg-warning text-dark' : 'bg-primary');
