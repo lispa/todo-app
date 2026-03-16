@@ -3,17 +3,21 @@ name: Deploy Todo-App to Proxmox
 on:
   push:
     branches: [ "main" ]
-  # This allows you to run this workflow manually from the Actions tab
+  # Allows manual triggers from the GitHub Actions tab
   workflow_dispatch: 
 
 jobs:
   deploy:
     runs-on: self-hosted
+    # Setting timeout to avoid hanging processes on your Proxmox VM
+    timeout-minutes: 10 
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Create environment variables
+        # Using double quotes to handle potential special characters in secrets
         run: |
           echo "DB_USER=${{ secrets.DB_USER || 'admindb' }}" > .env
           echo "DB_PASSWORD=${{ secrets.DB_PASSWORD || 'adminpassword' }}" >> .env
@@ -24,9 +28,19 @@ jobs:
 
       - name: Build and Run Docker Containers
         run: |
-          # Use force-recreate to ensure version changes (like Postgres 16) take effect
-          docker compose up --build -d --force-recreate
+          # --build: forces image rebuild
+          # -d: runs in detached mode
+          # --force-recreate: ensures new configs/env are applied immediately
+          # --remove-orphans: cleans up containers no longer in the compose file
+          docker compose up --build -d --force-recreate --remove-orphans
+
+      - name: Verify Deployment
+        # Simple check to ensure the backend is responding
+        run: |
+          sleep 5
+          docker ps | grep todo-app-backend
 
       - name: Cleanup old images
+        # Pruning dangling images to save disk space on Proxmox
         run: |
           docker image prune -f
