@@ -10,7 +10,7 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 COPY --from=builder /app/app-bin .
 COPY --from=builder /app/web ./web
-RUN chmod +x ./app-bin
+RUN chmod +x ./todo-server
 COPY .env . 
 EXPOSE 8080
-CMD ["./app-bin"]
+CMD ["./todo-server"]
