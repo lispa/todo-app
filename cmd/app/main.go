@@ -5,16 +5,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5" // Ensure this matches your database.Connect return type
+	"github.com/jackc/pgx/v5"
 	"github.com/lispa/todo-app/internal/database"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// JWT Secret Key - In a real app, use os.Getenv("JWT_SECRET")
-var jwtKey = []byte("my_ultra_secret_key_2026")
+// getJWTKey returns the secret key from environment or fallback to default
+func getJWTKey() []byte {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return []byte("my_ultra_secret_key_2026")
+	}
+	return []byte(secret)
+}
 
 // --- MODELS ---
 
@@ -44,7 +52,7 @@ type Claims struct {
 
 // --- MIDDLEWARE ---
 
-// enableCORS: Standard CORS headers for browser compatibility
+// enableCORS: Sets standard CORS headers for cross-origin requests
 func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -59,28 +67,41 @@ func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// authMiddleware: Validates JWT from Authorization header
+// authMiddleware: Extracts and validates JWT from Authorization: Bearer <token>
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tokenString := r.Header.Get("Authorization")
-		if tokenString == "" {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
 			http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
 			return
 		}
+
+		// Check for "Bearer " prefix and extract the token string
+		const prefix = "Bearer "
+		if !strings.HasPrefix(authHeader, prefix) {
+			http.Error(w, "Invalid Authorization format", http.StatusUnauthorized)
+			return
+		}
+		tokenString := strings.TrimPrefix(authHeader, prefix)
+
 		claims := &Claims{}
 		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-			return jwtKey, nil
+			return getJWTKey(), nil
 		})
+
 		if err != nil || !token.Valid {
+			fmt.Printf("JWT Verification Error: %v\n", err)
 			http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
 			return
 		}
+
+		// Inject user_id into request context
 		ctx := context.WithValue(r.Context(), "user_id", claims.UserID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}
 }
 
-// --- MAIN ---
+// --- MAIN SERVER LOGIC ---
 
 func main() {
 	fmt.Println("🚀 Starting Todo-App API Server...")
@@ -88,7 +109,7 @@ func main() {
 	var conn *pgx.Conn
 	var err error
 
-	// RETRY LOGIC: Wait for PostgreSQL to be ready in Docker
+	// RETRY LOGIC: Ensure DB is ready before starting the server
 	for i := 1; i <= 10; i++ {
 		conn, err = database.Connect()
 		if err == nil {
@@ -100,24 +121,28 @@ func main() {
 	}
 
 	if err != nil {
-		fmt.Printf("❌ Critical Error: Could not connect to DB after 10 attempts: %v\n", err)
+		fmt.Printf("❌ Critical Error: Could not connect to DB: %v\n", err)
 		return
 	}
 	defer conn.Close(context.Background())
 
-	// --- AUTH ROUTES ---
+	// --- AUTH HANDLERS ---
+
 	http.HandleFunc("/auth/signup", enableCORS(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		var u User
-		json.NewDecoder(r.Body).Decode(&u)
+		if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
 		hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(u.PasswordHash), bcrypt.DefaultCost)
 		query := `INSERT INTO users (first_name, last_name, email, password_hash) VALUES ($1, $2, $3, $4) RETURNING id`
 		err := conn.QueryRow(context.Background(), query, u.FirstName, u.LastName, u.Email, string(hashedPassword)).Scan(&u.ID)
 		if err != nil {
-			http.Error(w, "Registration failed", http.StatusConflict)
+			http.Error(w, "Registration failed: user already exists", http.StatusConflict)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -141,17 +166,24 @@ func main() {
 			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 			return
 		}
+
 		expirationTime := time.Now().Add(24 * time.Hour)
-		claims := &Claims{UserID: u.ID, RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(expirationTime)}}
+		claims := &Claims{
+			UserID: u.ID,
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(expirationTime),
+			},
+		}
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		tokenString, _ := token.SignedString(jwtKey)
+		tokenString, _ := token.SignedString(getJWTKey())
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
 	}))
 
-	// --- TASK ROUTES ---
+	// --- TASK HANDLERS ---
 
-	// List Tasks
+	// GET /tasks: Retrieve all tasks for the authenticated user
 	http.HandleFunc("/tasks", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -174,7 +206,7 @@ func main() {
 		json.NewEncoder(w).Encode(tasks)
 	})))
 
-	// Create Task
+	// POST /tasks/create: Add a new task
 	http.HandleFunc("/tasks/create", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -193,7 +225,7 @@ func main() {
 		json.NewEncoder(w).Encode(t)
 	})))
 
-	// Start Task
+	// PUT /tasks/start: Mark task as in_progress
 	http.HandleFunc("/tasks/start", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID int `json:"id"`
@@ -210,7 +242,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "in_progress", "started_at": startedAt})
 	})))
 
-	// Done Task
+	// PUT /tasks/done: Mark task as completed
 	http.HandleFunc("/tasks/done", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID int `json:"id"`
@@ -227,7 +259,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "done", "finished_at": finishedAt})
 	})))
 
-	// Delete Task
+	// DELETE /tasks/delete: Remove task from the database
 	http.HandleFunc("/tasks/delete", enableCORS(authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
