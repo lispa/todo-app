@@ -3,11 +3,12 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o main ./cmd/app/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/todo-server ./cmd/server/main.go
 
 FROM alpine:latest
+RUN apk --no-cache add ca-certificates
 WORKDIR /root/
-COPY --from=builder /app/main .
+COPY --from=builder /app/web ./web
 COPY .env . 
 EXPOSE 8080
-CMD ["./main"]
+CMD ["./todo-server"]

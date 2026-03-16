@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16  
+    image: postgres:16-alpine # Using alpine for a smaller footprint
     container_name: todo-app-db-1
     environment:
       POSTGRES_USER: admindb
@@ -10,22 +10,31 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    # Healthcheck ensures the database is actually ready to accept queries
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admindb -d todo_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   app:
     build: .
     container_name: todo-app-backend
+    # Ensures 'app' only starts when 'db' passes its healthcheck
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: admindb
       DB_PASSWORD: adminpassword
       DB_NAME: todo_db
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:-my_default_secret_for_dev} # Fallback value
+    restart: always
 
   nginx:
-    image: nginx:latest
+    image: nginx:alpine # Smaller image
     container_name: todo-app-nginx
     ports:
       - "80:80"
@@ -33,7 +42,9 @@ services:
       - ./web:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
     depends_on:
-      - app
+      app:
+        condition: service_started # Nginx just needs the app container running
+    restart: always
 
 volumes:
   postgres_data:
