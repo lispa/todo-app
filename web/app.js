@@ -1,7 +1,7 @@
 /**
  * Todo-App Frontend Logic
- * Full Task Lifecycle: Create, Start, Complete, Delete
- * @version 1.3
+ * Handles navigation, auth, and dynamic task rendering.
+ * @version 1.4
  */
 
 const API_URL = '/api';
@@ -10,7 +10,7 @@ let currentAuthMode = 'login';
 // --- SECTION 1: NAVIGATION ---
 
 /**
- * Switch between application sections: Welcome, Auth, or Dashboard.
+ * Switch visibility between app sections.
  */
 function showSection(section, mode = null) {
     const sections = ['welcome-section', 'auth-section', 'todo-section'];
@@ -41,7 +41,7 @@ function showSection(section, mode = null) {
 }
 
 /**
- * UI labels for Login/Signup toggle
+ * Toggle between Login and Signup text in UI.
  */
 function updateAuthUI() {
     const signupFields = document.getElementById('signup-fields');
@@ -116,7 +116,7 @@ function logout() {
 // --- SECTION 3: TASK MANAGEMENT ---
 
 /**
- * Fetch and display tasks with action buttons
+ * Fetch tasks and render them with action buttons (Start/Done/Delete).
  */
 async function loadTasks() {
     const token = localStorage.getItem('token');
@@ -143,19 +143,24 @@ async function loadTasks() {
             const item = document.createElement('div');
             item.className = 'list-group-item d-flex justify-content-between align-items-center shadow-sm mb-3 border-0 rounded p-3';
             
-            // Logic for dynamic badges and action buttons
+            // Task status logic
             const isDone = task.status === 'done';
             const isInProgress = task.status === 'in_progress';
             const badgeClass = isDone ? 'bg-success' : (isInProgress ? 'bg-warning text-dark' : 'bg-primary');
 
+            // Render task with conditional buttons
             item.innerHTML = `
                 <div class="flex-grow-1">
                     <h6 class="mb-1 fw-bold ${isDone ? 'text-decoration-line-through text-muted' : ''}">${task.title}</h6>
                     <span class="badge ${badgeClass}">${task.status.replace('_', ' ')}</span>
                 </div>
                 <div class="btn-group ms-3">
-                    ${task.status === 'todo' ? `<button class="btn btn-sm btn-outline-warning" onclick="updateTaskStatus(${task.id}, 'start')">Start</button>` : ''}
-                    ${isInProgress ? `<button class="btn btn-sm btn-outline-success" onclick="updateTaskStatus(${task.id}, 'done')">Done</button>` : ''}
+                    ${task.status === 'todo' ? 
+                        `<button class="btn btn-sm btn-outline-warning" onclick="updateTaskStatus(${task.id}, 'start')">Start</button>` : ''}
+                    
+                    ${isInProgress ? 
+                        `<button class="btn btn-sm btn-outline-success" onclick="updateTaskStatus(${task.id}, 'done')">Done</button>` : ''}
+                    
                     <button class="btn btn-sm btn-outline-danger" onclick="deleteTask(${task.id})">Delete</button>
                 </div>
             `;
@@ -164,34 +169,8 @@ async function loadTasks() {
     } catch (err) { console.error('Load Error:', err); }
 }
 
-async function createTask() {
-    const titleInput = document.getElementById('task-title');
-    const token = localStorage.getItem('token');
-    if (!titleInput.value || !token) return;
-
-    try {
-        const response = await fetch(`${API_URL}/tasks/create`, {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token.trim()}`
-            },
-            body: JSON.stringify({ title: titleInput.value })
-        });
-
-        if (response.ok) {
-            titleInput.value = '';
-            loadTasks();
-        } else if (response.status === 401) {
-            logout();
-        }
-    } catch (err) { console.error("Create Error:", err); }
-}
-
 /**
- * Handle Start/Done actions
- * @param {number} taskId 
- * @param {string} action - 'start' or 'done'
+ * Generic status update (Start/Done).
  */
 async function updateTaskStatus(taskId, action) {
     const token = localStorage.getItem('token');
@@ -210,7 +189,7 @@ async function updateTaskStatus(taskId, action) {
 }
 
 /**
- * Delete task from DB
+ * Remove task from server.
  */
 async function deleteTask(taskId) {
     if (!confirm("Are you sure?")) return;
@@ -229,13 +208,13 @@ async function deleteTask(taskId) {
     } catch (err) { console.error('Delete error:', err); }
 }
 
+// Ensure functions are global for HTML onclicks
+window.updateTaskStatus = updateTaskStatus;
+window.deleteTask = deleteTask;
+
 // --- SECTION 4: INITIALIZATION ---
 
 window.onload = () => {
     const token = localStorage.getItem('token');
     token ? showSection('todo') : showSection('welcome');
 };
-
-// Expose functions to global scope for HTML onclick handlers
-window.updateTaskStatus = updateTaskStatus;
-window.deleteTask = deleteTask;
