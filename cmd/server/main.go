@@ -1,38 +1,55 @@
 package main
 
 import (
-	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv" // Don't forget: go get github.com/joho/godotenv
 	"github.com/lispa/todo-app/internal/database"
 	"github.com/lispa/todo-app/internal/handlers"
 	"github.com/lispa/todo-app/internal/middleware"
+	"github.com/lispa/todo-app/internal/repository"
 )
 
 func main() {
-	fmt.Println("🚀 Starting Refactored Todo-App API Server...")
+	fmt.Println("🚀 Starting Refactored Kanban Todo-App API Server...")
 
-	// 1. Establish database connection with retry logic
-	conn := connectWithRetry()
-	defer conn.Close(context.Background())
+	// 1. Load environment variables from .env file
+	// This ensures os.Getenv works correctly for DB credentials
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using system environment variables")
+	}
 
-	// 2. Define Routes
+	// 2. Establish database connection pool with retry logic
+	// Returns *pgxpool.Pool instead of a single connection
+	pool := connectWithRetry()
+	defer pool.Close()
 
-	// Auth Routes
-	http.HandleFunc("/auth/signup", middleware.EnableCORS(handlers.HandleSignup(conn)))
-	http.HandleFunc("/auth/login", middleware.EnableCORS(handlers.HandleLogin(conn)))
+	// 3. Initialize Repository
+	// We wrap the database pool into a repository layer
+	taskRepo := repository.NewTaskRepository(pool)
+
+	// 4. Define Routes
+	// Note: We pass taskRepo to handlers instead of the raw db connection
+
+	// Auth Routes (Assuming you'll refactor these too later)
+	http.HandleFunc("/auth/signup", middleware.EnableCORS(handlers.HandleSignup(pool)))
+	http.HandleFunc("/auth/login", middleware.EnableCORS(handlers.HandleLogin(pool)))
 
 	// Task Routes (Protected by Auth Middleware)
-	http.HandleFunc("/tasks", middleware.EnableCORS(middleware.Auth(handlers.HandleListTasks(conn))))
-	http.HandleFunc("/tasks/create", middleware.EnableCORS(middleware.Auth(handlers.HandleCreateTask(conn))))
-	http.HandleFunc("/tasks/start", middleware.EnableCORS(middleware.Auth(handlers.HandleStartTask(conn))))
-	http.HandleFunc("/tasks/done", middleware.EnableCORS(middleware.Auth(handlers.HandleDoneTask(conn))))
-	http.HandleFunc("/tasks/delete", middleware.EnableCORS(middleware.Auth(handlers.HandleDeleteTask(conn))))
+	// These handlers now use our new TaskRepository for Kanban logic
+	http.HandleFunc("/tasks", middleware.EnableCORS(middleware.Auth(handlers.HandleListTasks(taskRepo))))
+	http.HandleFunc("/tasks/create", middleware.EnableCORS(middleware.Auth(handlers.HandleCreateTask(taskRepo))))
 
-	// 3. Start Server
+	// New Unified Route for moving tasks between columns (TODO -> In Progress -> Done)
+	http.HandleFunc("/tasks/update-status", middleware.EnableCORS(middleware.Auth(handlers.HandleUpdateStatus(taskRepo))))
+
+	http.HandleFunc("/tasks/delete", middleware.EnableCORS(middleware.Auth(handlers.HandleDeleteTask(taskRepo))))
+
+	// 5. Start Server
 	fmt.Println("🌐 Server listening on :8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		fmt.Printf("❌ Server failed to start: %v\n", err)
@@ -40,15 +57,17 @@ func main() {
 }
 
 // connectWithRetry attempts to connect to the database 10 times before failing
-func connectWithRetry() *pgx.Conn {
-	var conn *pgx.Conn
+// Returns *pgxpool.Pool which is safe for high-concurrency Kanban boards
+func connectWithRetry() *pgxpool.Pool {
+	var pool *pgxpool.Pool
 	var err error
 
 	for i := 1; i <= 10; i++ {
-		conn, err = database.Connect()
+		// Calling your updated database.Connect() which should return (*pgxpool.Pool, error)
+		pool, err = database.Connect()
 		if err == nil {
-			fmt.Println("✅ Successfully connected to the database!")
-			return conn
+			fmt.Println("✅ Successfully connected to the database pool!")
+			return pool
 		}
 		fmt.Printf("⏳ [Attempt %d/10] Database not ready, retrying in 3 seconds...\n", i)
 		time.Sleep(3 * time.Second)
