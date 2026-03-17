@@ -30,8 +30,9 @@ const API = {
         try {
             const response = await fetch(`${this.baseUrl}${endpoint}`, config);
             
-            // Session expired handler
-            if (response.status === 401) {
+            // --- UPDATED LOGIC HERE ---
+            // Only logout if it's NOT an auth attempt (login/signup)
+            if (response.status === 401 && !endpoint.includes('/auth/')) {
                 logout();
                 throw new Error('Session expired. Please log in again.');
             }
