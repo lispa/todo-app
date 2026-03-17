@@ -52,7 +52,7 @@ Before running the project, make sure you have:
 1.  **Clone the repository**
 
 ``` bash
-git clone https://github.com/your-username/todo-app.git
+git clone https://github.com/lispa/todo-app.git
 cd todo-app
 ```
 
