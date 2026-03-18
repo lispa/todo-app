@@ -1,20 +1,19 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lispa/todo-app/internal/middleware"
 	"github.com/lispa/todo-app/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
 
 // HandleSignup processes new user registration
-func HandleSignup(db *pgx.Conn) http.HandlerFunc {
+func HandleSignup(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -31,13 +30,12 @@ func HandleSignup(db *pgx.Conn) http.HandlerFunc {
 		hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(u.PasswordHash), bcrypt.DefaultCost)
 
 		query := `INSERT INTO users (first_name, last_name, email, password_hash) 
-		          VALUES ($1, $2, $3, $4) RETURNING id`
-
-		err := db.QueryRow(context.Background(), query,
+                  VALUES ($1, $2, $3, $4) RETURNING id`
+		err := db.QueryRow(r.Context(), query,
 			u.FirstName, u.LastName, u.Email, string(hashedPassword)).Scan(&u.ID)
 
 		if err != nil {
-			http.Error(w, "User already exists", http.StatusConflict)
+			http.Error(w, "User already exists or DB error", http.StatusConflict)
 			return
 		}
 
@@ -47,7 +45,7 @@ func HandleSignup(db *pgx.Conn) http.HandlerFunc {
 }
 
 // HandleLogin authenticates user and returns a JWT token
-func HandleLogin(db *pgx.Conn) http.HandlerFunc {
+func HandleLogin(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var creds struct {
 			Email    string `json:"email"`
@@ -61,7 +59,7 @@ func HandleLogin(db *pgx.Conn) http.HandlerFunc {
 
 		var u models.User
 		query := `SELECT id, password_hash FROM users WHERE email = $1`
-		err := db.QueryRow(context.Background(), query, creds.Email).Scan(&u.ID, &u.PasswordHash)
+		err := db.QueryRow(r.Context(), query, creds.Email).Scan(&u.ID, &u.PasswordHash)
 
 		// Compare hashed password with provided plain text
 		if err != nil || bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(creds.Password)) != nil {
