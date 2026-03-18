@@ -2,7 +2,8 @@ package repository
 
 import (
 	"context"
-	"your_project_name/internal/models" // Замени на свое название модуля из go.mod
+
+	"github.com/lispa/todo-app/internal/models"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
