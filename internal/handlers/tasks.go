@@ -1,43 +1,27 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
-	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/lispa/todo-app/internal/models"
+	"github.com/lispa/todo-app/internal/repository"
 )
 
-// HandleListTasks retrieves all tasks for the authenticated user
-func HandleListTasks(db *pgx.Conn) http.HandlerFunc {
+// HandleListTasks - GET /tasks
+// Fetches all tasks to populate your Kanban columns
+func HandleListTasks(repo *repository.TaskRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		// Get userID from context (set by your Auth middleware)
+		userID, ok := r.Context().Value("user_id").(int)
+		if !ok {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 
-		userID := r.Context().Value("user_id").(int)
-
-		query := `SELECT id, user_id, title, status, started_at, finished_at, created_at 
-		          FROM tasks WHERE user_id = $1 ORDER BY created_at DESC`
-
-		rows, err := db.Query(context.Background(), query, userID)
+		tasks, err := repo.GetAll(r.Context(), userID)
 		if err != nil {
-			http.Error(w, "Database error", http.StatusInternalServerError)
+			http.Error(w, "Failed to fetch tasks", http.StatusInternalServerError)
 			return
-		}
-		defer rows.Close()
-
-		tasks := []models.Task{}
-		for rows.Next() {
-			var t models.Task
-			err := rows.Scan(&t.ID, &t.UserID, &t.Title, &t.Status, &t.StartedAt, &t.FinishedAt, &t.CreatedAt)
-			if err != nil {
-				continue
-			}
-			tasks = append(tasks, t)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -45,108 +29,69 @@ func HandleListTasks(db *pgx.Conn) http.HandlerFunc {
 	}
 }
 
-// HandleCreateTask adds a new task to the database
-func HandleCreateTask(db *pgx.Conn) http.HandlerFunc {
+// HandleCreateTask - POST /tasks/create
+func HandleCreateTask(repo *repository.TaskRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
+		var input struct {
+			Title string `json:"title"`
 		}
-
-		userID := r.Context().Value("user_id").(int)
-		var t models.Task
-		if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			http.Error(w, "Invalid input", http.StatusBadRequest)
 			return
 		}
 
-		query := `INSERT INTO tasks (user_id, title, status) 
-		          VALUES ($1, $2, $3) RETURNING id, user_id, status, created_at`
-
-		err := db.QueryRow(context.Background(), query, userID, t.Title, "todo").
-			Scan(&t.ID, &t.UserID, &t.Status, &t.CreatedAt)
-
+		userID := r.Context().Value("user_id").(int)
+		task, err := repo.Create(r.Context(), userID, input.Title)
 		if err != nil {
-			http.Error(w, "Failed to create task", http.StatusInternalServerError)
+			http.Error(w, "Could not create task", http.StatusInternalServerError)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(t)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(task)
 	}
 }
 
-// HandleStartTask updates task status to 'in_progress'
-func HandleStartTask(db *pgx.Conn) http.HandlerFunc {
+// HandleUpdateStatus - PATCH /tasks/update-status
+// This is what happens when you drag a task in your Paint drawing
+func HandleUpdateStatus(repo *repository.TaskRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
-			ID int `json:"id"`
+			ID     int    `json:"id"`
+			Status string `json:"status"` // todo, in_progress, done
 		}
-		json.NewDecoder(r.Body).Decode(&input)
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			http.Error(w, "Invalid input", http.StatusBadRequest)
+			return
+		}
+
 		userID := r.Context().Value("user_id").(int)
-
-		var startedAt time.Time
-		query := `UPDATE tasks SET status = 'in_progress', started_at = CURRENT_TIMESTAMP 
-		          WHERE id = $1 AND user_id = $2 RETURNING started_at`
-
-		err := db.QueryRow(context.Background(), query, input.ID, userID).Scan(&startedAt)
+		err := repo.UpdateStatus(r.Context(), userID, input.ID, input.Status)
 		if err != nil {
-			http.Error(w, "Task not found", http.StatusNotFound)
+			http.Error(w, "Update failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":     "in_progress",
-			"started_at": startedAt,
-		})
+		json.NewEncoder(w).Encode(map[string]string{"message": "Status updated successfully"})
 	}
 }
 
-// HandleDoneTask marks task as completed
-func HandleDoneTask(db *pgx.Conn) http.HandlerFunc {
+// HandleDeleteTask - DELETE /tasks/delete
+func HandleDeleteTask(repo *repository.TaskRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ID int `json:"id"`
 		}
-		json.NewDecoder(r.Body).Decode(&input)
-		userID := r.Context().Value("user_id").(int)
-
-		var finishedAt time.Time
-		query := `UPDATE tasks SET status = 'done', finished_at = CURRENT_TIMESTAMP 
-		          WHERE id = $1 AND user_id = $2 RETURNING finished_at`
-
-		err := db.QueryRow(context.Background(), query, input.ID, userID).Scan(&finishedAt)
-		if err != nil {
-			http.Error(w, "Task not found", http.StatusNotFound)
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			http.Error(w, "Invalid ID", http.StatusBadRequest)
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":      "done",
-			"finished_at": finishedAt,
-		})
-	}
-}
-
-// HandleDeleteTask removes a task from the database
-func HandleDeleteTask(db *pgx.Conn) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodDelete {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		var input struct {
-			ID int `json:"id"`
-		}
-		json.NewDecoder(r.Body).Decode(&input)
 		userID := r.Context().Value("user_id").(int)
-
-		res, err := db.Exec(context.Background(), "DELETE FROM tasks WHERE id = $1 AND user_id = $2", input.ID, userID)
-		if err != nil || res.RowsAffected() == 0 {
-			http.Error(w, "Task not found", http.StatusNotFound)
+		if err := repo.Delete(r.Context(), userID, input.ID); err != nil {
+			http.Error(w, "Delete failed", http.StatusNotFound)
 			return
 		}
 
